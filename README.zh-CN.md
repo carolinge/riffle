@@ -70,9 +70,15 @@
 从 [Releases](../../releases) 下载最新的 `Riffle-x.y.z-arm64.dmg`，
 打开后把 **Riffle** 拖进「应用程序」。
 
-> **首次启动** —— Riffle 未做代码签名（没买 $99 的 Apple 证书），macOS
-> 会弹出警告。右键点击应用 → **打开** → **打开**，一次之后即可正常使用。
-> 需要 Apple Silicon 芯片的 Mac。
+> **首次启动** —— Riffle 未经 Apple 公证（需要 $99/年 的开发者账号），
+> 下载后 macOS 会隔离应用并谎称其"已损坏"。它没坏——拖入「应用程序」后
+> 在终端执行一次即可解除隔离：
+>
+> ```bash
+> xattr -cr /Applications/Riffle.app
+> ```
+>
+> 此后一切正常。需要 Apple Silicon 芯片的 Mac。
 
 ## 从源码构建
 

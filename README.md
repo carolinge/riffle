@@ -80,9 +80,16 @@ with no chrome; auto-trim shaves the white margins so content gets every pixel.
 Download the latest `Riffle-x.y.z-arm64.dmg` from
 [Releases](../../releases), open it, and drag **Riffle** into Applications.
 
-> **First launch** — Riffle isn't code-signed (no $99 Apple certificate), so
-> macOS will warn you. Right-click the app → **Open** → **Open** once; after
-> that it opens normally. Requires an Apple Silicon Mac.
+> **First launch** — Riffle isn't notarized by Apple (that requires a $99/year
+> developer account), so after downloading, macOS quarantines it and claims the
+> app is *“damaged”*. It isn't — clear the quarantine flag once after copying
+> it to Applications:
+>
+> ```bash
+> xattr -cr /Applications/Riffle.app
+> ```
+>
+> It opens normally from then on. Requires an Apple Silicon Mac.
 
 ## Build from source
 
