@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:;" />
+<title>Riffle</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- top drag strip (invisible, lets you move the frameless window) -->
+  <div id="dragStrip"></div>
+
+  <div id="loadingHint"></div>
+
+  <!-- loading progress hairline -->
+  <div id="progress"></div>
+
+  <!-- floating window controls, top-left, only when the cursor visits the corner -->
+  <div id="winControls" aria-label="窗口控制">
+    <button class="tl tl-close" id="btnClose" title="关闭">
+      <svg viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6"/></svg>
+    </button>
+    <button class="tl tl-min" id="btnMin" title="最小化">
+      <svg viewBox="0 0 10 10"><path d="M1.6 5h6.8"/></svg>
+    </button>
+    <button class="tl tl-full" id="btnFull" title="全屏">
+      <svg viewBox="0 0 10 10"><path d="M2 5.8V8h2.2M8 4.2V2H5.8"/></svg>
+    </button>
+  </div>
+
+  <!-- current file name, only shown while the menu is open -->
+  <div id="fileLabel"></div>
+
+  <!-- find in document (⌘F) -->
+  <div id="findWrap">
+    <div id="findBar">
+      <svg class="find-ico" viewBox="0 0 20 20"><circle cx="9" cy="9" r="5.2"/><path d="M13.2 13.2l3.6 3.6"/></svg>
+      <input id="findInput" type="text" spellcheck="false" autocomplete="off" />
+      <span id="findCount"></span>
+      <button id="findPrev"><svg viewBox="0 0 20 20"><path d="M5.5 12.2l4.5-4.4 4.5 4.4"/></svg></button>
+      <button id="findNext"><svg viewBox="0 0 20 20"><path d="M5.5 7.8l4.5 4.4 4.5-4.4"/></svg></button>
+      <button id="findClose"><svg viewBox="0 0 20 20"><path d="M6 6l8 8M14 6l-8 8"/></svg></button>
+    </div>
+    <div id="findResults"></div>
+  </div>
+
+  <!-- hover peek for find results: the match in place, on its page -->
+  <div id="findPeek">
+    <div class="fp-clip"><canvas></canvas><div class="fp-band"></div><em id="fpPage"></em></div>
+  </div>
+
+  <!-- floating menu button, top-right — appears when the cursor visits the corner -->
+  <button id="menuBtn" title="菜单">
+    <svg viewBox="0 0 20 20"><path d="M4 6.5h12M4 10h12M4 13.5h7"/></svg>
+  </button>
+
+  <!-- menu panel -->
+  <div id="menuPanel">
+    <button class="menu-row" id="menuOpen">
+      <span>打开 PDF…</span><kbd>⌘O</kbd>
+    </button>
+    <div class="menu-sep"></div>
+    <div class="menu-label">浏览模式</div>
+    <div class="segmented" id="modeSeg">
+      <button data-mode="1" class="on" title="单栏">
+        <svg viewBox="0 0 22 16"><rect x="6.5" y="1.5" width="9" height="13" rx="1.2"/></svg>
+      </button>
+      <button data-mode="2" title="双栏">
+        <svg viewBox="0 0 22 16"><rect x="2.5" y="1.5" width="7.6" height="13" rx="1.2"/><rect x="11.9" y="1.5" width="7.6" height="13" rx="1.2"/></svg>
+      </button>
+      <button data-mode="3" title="三栏">
+        <svg viewBox="0 0 22 16"><rect x="1.5" y="1.5" width="5.4" height="13" rx="1"/><rect x="8.3" y="1.5" width="5.4" height="13" rx="1"/><rect x="15.1" y="1.5" width="5.4" height="13" rx="1"/></svg>
+      </button>
+      <button data-mode="h" title="横向 · 无缝">
+        <svg viewBox="0 0 22 16"><rect x="1.5" y="2.5" width="19" height="11" rx="1"/><path d="M7.8 2.5v11M14.2 2.5v11"/></svg>
+      </button>
+    </div>
+    <div class="menu-sep"></div>
+    <div class="menu-row static">
+      <span>缩放</span>
+      <span class="zoom-ctl">
+        <button id="zoomOut" title="缩小">−</button>
+        <em id="zoomLabel">100%</em>
+        <button id="zoomIn" title="放大">＋</button>
+      </span>
+    </div>
+    <div class="fit-row">
+      <button id="fitW">
+        <svg viewBox="0 0 20 20"><path d="M2.8 4.5v11M17.2 4.5v11"/><path d="M5.8 10h8.4M8.3 7.5L5.8 10l2.5 2.5M11.7 7.5l2.5 2.5-2.5 2.5"/></svg>
+      </button>
+      <button id="fitH">
+        <svg viewBox="0 0 20 20"><path d="M4.5 2.8h11M4.5 17.2h11"/><path d="M10 5.8v8.4M7.5 8.3L10 5.8l2.5 2.5M7.5 11.7l2.5 2.5 2.5-2.5"/></svg>
+      </button>
+    </div>
+    <div class="menu-sep"></div>
+    <button class="menu-row" id="menuTrim">
+      <span>裁剪白边</span>
+      <span class="switch" id="trimSwitch"><i></i></span>
+    </button>
+  </div>
+
+  <!-- table of contents handle — lives on the left edge, appears on approach -->
+  <button id="tocHandle" title="目录 (T)">
+    <svg viewBox="0 0 20 20"><path d="M7 5.5h9M7 10h9M7 14.5h9M4 5.5h.01M4 10h.01M4 14.5h.01"/></svg>
+  </button>
+
+  <!-- table of contents, floating card on the left -->
+  <aside id="toc">
+    <header>目录</header>
+    <div id="tocList"></div>
+  </aside>
+
+  <!-- the document itself -->
+  <main id="scroller">
+    <div id="pages"></div>
+    <div id="empty">
+      <svg viewBox="0 0 48 48"><path d="M14 6h14l8 8v26a2 2 0 0 1-2 2H14a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M28 6v8h8"/><path d="M19 26h12M19 32h8"/></svg>
+      <p>将 PDF 拖到这里</p>
+      <p class="sub">或按 <kbd>⌘O</kbd> 打开文件</p>
+      <button id="emptyOpen">选择文件</button>
+    </div>
+  </main>
+
+  <!-- annotation toolbar, floating pill at the bottom — appears on approach -->
+  <div id="toolbar">
+    <button data-tool="cursor" class="tool on" title="阅读 (V)">
+      <svg viewBox="0 0 20 20"><path d="M6 3.2l9.2 7.6-4.3.6 2.4 4.8-2 1-2.3-4.9-3 3.2z"/></svg>
+    </button>
+    <button data-tool="highlight" class="tool" title="高亮 (H)">
+      <svg viewBox="0 0 20 20"><path d="M12.5 3.5l4 4L9 15l-4.6 1.1L5.5 11z"/><path d="M4 18h12" class="thin"/></svg>
+    </button>
+    <button data-tool="note" class="tool" title="批注 (N)">
+      <svg viewBox="0 0 20 20"><path d="M4 4.5h12a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1h-6l-4 3.4V14H4a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1z"/></svg>
+    </button>
+    <span class="tb-sep"></span>
+    <span id="swatches">
+      <button class="swatch on" data-color="#FFDE5C" style="--c:#FFDE5C"></button>
+      <button class="swatch" data-color="#A8E6A1" style="--c:#A8E6A1"></button>
+      <button class="swatch" data-color="#A9D6FF" style="--c:#A9D6FF"></button>
+      <button class="swatch" data-color="#FFBFD3" style="--c:#FFBFD3"></button>
+      <button class="swatch" data-color="#D9C8FF" style="--c:#D9C8FF"></button>
+    </span>
+  </div>
+
+  <!-- page scrubber: hover to skim, click to jump -->
+  <div id="scrubber">
+    <div id="scrubFly">
+      <div class="sf-page sf-prev"><canvas></canvas></div>
+      <div class="sf-page sf-cur"><canvas></canvas><canvas class="sf-fade"></canvas><em id="sfNum"></em></div>
+      <div class="sf-page sf-next"><canvas></canvas></div>
+    </div>
+    <div id="scrubTrack">
+      <div id="scrubTicks"></div>
+      <div id="scrubCur"></div>
+      <div id="scrubGhost"></div>
+    </div>
+  </div>
+
+  <!-- page indicator, bottom-right — shows together with the scrubber -->
+  <button id="pageIndicator" title="跳转页面"></button>
+  <form id="pageJump"><input type="text" inputmode="numeric" /><span id="pageJumpTotal"></span></form>
+
+  <!-- internal-link preview: a readable peek at the destination region -->
+  <div id="linkPreview">
+    <div class="lp-clip"><canvas></canvas><em id="lpPage"></em></div>
+  </div>
+
+  <!-- popover: edit an existing highlight -->
+  <div id="hlPopover" class="popover">
+    <button class="swatch" data-color="#FFDE5C" style="--c:#FFDE5C"></button>
+    <button class="swatch" data-color="#A8E6A1" style="--c:#A8E6A1"></button>
+    <button class="swatch" data-color="#A9D6FF" style="--c:#A9D6FF"></button>
+    <button class="swatch" data-color="#FFBFD3" style="--c:#FFBFD3"></button>
+    <button class="swatch" data-color="#D9C8FF" style="--c:#D9C8FF"></button>
+    <span class="tb-sep"></span>
+    <button id="hlDelete" class="danger" title="删除高亮">
+      <svg viewBox="0 0 20 20"><path d="M5 6.5h10M8.2 6V4.6h3.6V6M6.2 6.5l.6 8.4a1 1 0 0 0 1 .9h4.4a1 1 0 0 0 1-.9l.6-8.4"/></svg>
+    </button>
+  </div>
+
+  <!-- popover: sticky note -->
+  <div id="notePopover" class="popover note">
+    <textarea id="noteText" placeholder="写点什么…" rows="4"></textarea>
+    <footer>
+      <span id="noteDate"></span>
+      <button id="noteDelete" class="danger" title="删除批注">
+        <svg viewBox="0 0 20 20"><path d="M5 6.5h10M8.2 6V4.6h3.6V6M6.2 6.5l.6 8.4a1 1 0 0 0 1 .9h4.4a1 1 0 0 0 1-.9l.6-8.4"/></svg>
+      </button>
+    </footer>
+  </div>
+
+  <script src="../node_modules/pdfjs-dist/build/pdf.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

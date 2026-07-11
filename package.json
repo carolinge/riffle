@@ -1,0 +1,67 @@
+{
+  "name": "riffle",
+  "productName": "Riffle",
+  "version": "0.1.0",
+  "description": "Riffle — a featherweight PDF reader that lets you riffle through pages",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "sample": "node tools/make-sample.js",
+    "dist": "electron-builder --mac"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "pdfjs-dist": "3.11.174"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.scibolt.riffle",
+    "productName": "Riffle",
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": null
+    },
+    "fileAssociations": [
+      {
+        "ext": "pdf",
+        "name": "PDF Document",
+        "role": "Viewer"
+      }
+    ],
+    "asarUnpack": [
+      "node_modules/pdfjs-dist/**"
+    ],
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "!**/*.map",
+      "!node_modules/pdfjs-dist/legacy/**",
+      "!node_modules/pdfjs-dist/lib/**",
+      "!node_modules/pdfjs-dist/web/**",
+      "!node_modules/pdfjs-dist/image_decoders/**",
+      "!node_modules/pdfjs-dist/types/**"
+    ]
+  },
+  "author": "Shiling (https://github.com/Shiling42)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shiling42/riffle.git"
+  },
+  "homepage": "https://github.com/Shiling42/riffle"
+}
