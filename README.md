@@ -19,10 +19,25 @@ Reading papers means constant jumping: to a reference, to a figure, to the next
 section, back again. Most readers make you *commit* to every jump. Riffle lets
 you **peek before you leap** — previews everywhere, jumps only when you click.
 
-- **Page scrubber** — glide along the bottom ruler to riffle through the whole
-  document like a flipbook, with chapter marks etched into the track and
-  vermilion breadcrumbs remembering where you jumped from. Hover previews,
-  click jumps.
+## The scrubber — where the name comes from
+
+> *riffle (v.): to flip hastily through the pages of a book with your thumb.*
+
+This is the heart of Riffle. Bring your cursor to the bottom edge and a thin
+ruler appears: the whole document laid out as a line, chapter openings etched
+into the track as tiny graduations, a vermilion dot marking where you are.
+
+**Sweep along it and pages flash past like a flipbook** — a full-size,
+readable preview of every page under your thumb, with its neighbours at its
+side. Hovering never moves you; the reading position stays put until you
+click. When you do jump, the place you left behind lingers on the track as a
+slowly fading vermilion bead — your last two jumps, always one click from
+home.
+
+![Scrubber](docs/shot-scrubber.png)
+
+## Peeks everywhere
+
 - **Link peeks** — click an internal link (a citation, a figure reference) and
   a readable preview of the target floats up in place. Scroll and pinch inside
   it. Jump only if it's worth it.
@@ -42,10 +57,6 @@ with no chrome; auto-trim shaves the white margins so content gets every pixel.
 | Three columns + menu | Horizontal filmstrip |
 |---|---|
 | ![Modes](docs/shot-modes.png) | ![Horizontal](docs/shot-horizontal.png) |
-
-## The scrubber
-
-![Scrubber](docs/shot-scrubber.png)
 
 ## Everything else
 
