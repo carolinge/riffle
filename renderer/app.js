@@ -12,6 +12,7 @@ const body = document.body;
 const state = {
   doc: null,
   name: '',
+  path: '',               // absolute file path, '' when opened from raw data
   fp: '',                 // document fingerprint, keys persistence
   mode: 1,                // 1 | 2 | 3 columns, or 'h' — horizontal filmstrip
   zoom: 1,
@@ -53,6 +54,12 @@ const T = ZH ? {
   findPh: '在文档中查找', findPrev: '上一个 (⇧↩)', findNext: '下一个 (↩)',
   findMore: (n) => `还有 ${n} 处未列出`,
   lpPage: (n) => `第 ${n} 页`, pwProtected: '受密码保护的 PDF 暂不支持',
+  shelf: '文稿架', shelfKey: '文稿架 (D)',
+  shelfEmpty: '拖入 PDF，即可放到文稿架上；点击卡片随时切换文档',
+  pinDoc: '固定 — 不会被自动清理', unpinDoc: '取消固定', removeDoc: '从文稿架移除',
+  openNewWin: '在新窗口打开', flipPrev: '封面上一页', flipNext: '封面下一页',
+  fileMissing: '找不到文件，可能已被移动或删除',
+  lastOpened: (d) => `上次打开：${d}`,
 } : {
   openPdf: 'Open PDF…', viewMode: 'VIEW', zoom: 'Zoom', trim: 'Trim margins',
   fitW: 'Fit width', fitH: 'Fit height',
@@ -68,6 +75,12 @@ const T = ZH ? {
   findPh: 'Find in document', findPrev: 'Previous (⇧↩)', findNext: 'Next (↩)',
   findMore: (n) => `${n} more not listed`,
   lpPage: (n) => `p. ${n}`, pwProtected: 'Password-protected PDFs are not supported yet',
+  shelf: 'DESK', shelfKey: 'Desk (D)',
+  shelfEmpty: 'Drop PDFs to keep them on the desk; click a card to switch documents',
+  pinDoc: 'Pin — never auto-cleared', unpinDoc: 'Unpin', removeDoc: 'Remove from desk',
+  openNewWin: 'Open in new window', flipPrev: 'Previous cover page', flipNext: 'Next cover page',
+  fileMissing: 'File not found — it may have been moved or deleted',
+  lastOpened: (d) => `Last opened ${d}`,
 };
 
 function applyI18n() {
@@ -100,6 +113,8 @@ function applyI18n() {
   $('#findPrev').title = T.findPrev;
   $('#findNext').title = T.findNext;
   $('#findClose').title = T.close;
+  $('#shelfHandle').title = T.shelfKey;
+  $('#shelf header').textContent = T.shelf;
 }
 applyI18n();
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -174,7 +189,7 @@ function loadPersisted() {
 
 const progressEl = $('#progress');
 
-async function openPdf(data, name) {
+async function openPdf(data, name, path) {
   body.classList.add('loading');
   progressEl.style.transform = 'scaleX(0.05)';
   closeAllPopovers();
@@ -185,53 +200,7 @@ async function openPdf(data, name) {
       if (total) progressEl.style.transform = `scaleX(${clamp(loaded / total, 0.05, 1)})`;
     };
     const doc = await task.promise;
-
-    if (state.doc) { try { state.doc.destroy(); } catch {} }
-    state.doc = doc;
-    state.name = name || 'document.pdf';
-    state.fp = (doc.fingerprints && doc.fingerprints[0]) || 'unknown';
-
-    const prefs = loadPersisted();
-    state.trim = false;
-    if (prefs) {
-      state.mode = MODES.includes(prefs.mode) ? prefs.mode : 1;
-      state.zoom = clamp(prefs.zoom || 1, ZMIN, ZMAX);
-      state.trim = !!prefs.trim;
-    }
-
-    state.pageSizes = [];
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i);
-      const vp = page.getViewport({ scale: 1 });
-      state.pageSizes.push({ w: vp.width, h: vp.height });
-      if (i === 1 || i % 20 === 0) {
-        progressEl.style.transform = `scaleX(${0.7 + 0.3 * (i / doc.numPages)})`;
-      }
-    }
-
-    $('#fileLabel').textContent = state.name.replace(/\.pdf$/i, '');
-    document.title = state.name.replace(/\.pdf$/i, '') + ' — Riffle';
-    body.classList.remove('no-doc');
-
-    undoStack.length = 0;
-    redoStack.length = 0;
-    resetFind();
-    resetScrub();
-    buildShells();
-    syncModeUI();
-    syncZoomUI();
-    syncTrimUI();
-    layout();
-    buildToc();
-    updateIndicator();
-    if (state.trim) sweepCrops();
-
-    if (prefs && prefs.page > 1 && prefs.page <= doc.numPages) {
-      scrollToPage(prefs.page, false);
-    } else {
-      scroller.scrollTop = 0;
-    }
-    if (native.docLoaded) native.docLoaded(); // this window now owns a document
+    await activateDoc(doc, name || 'document.pdf', path || '');
   } catch (err) {
     console.error('open failed:', err);
     if (err && err.name === 'PasswordException') alertToast(T.pwProtected);
@@ -241,6 +210,68 @@ async function openPdf(data, name) {
     body.classList.remove('loading');
     setTimeout(() => { progressEl.style.transform = 'scaleX(0)'; }, 600);
   }
+}
+
+/* make `doc` the document this window shows; the previous one stays warm on the shelf */
+let activateSeq = 0;
+
+async function activateDoc(doc, name, path) {
+  const seq = ++activateSeq;
+  stashCurrentDoc();
+  state.doc = doc;
+  state.name = name;
+  state.path = path || '';
+  state.fp = (doc.fingerprints && doc.fingerprints[0]) || 'unknown';
+
+  const prefs = loadPersisted();
+  state.trim = false;
+  if (prefs) {
+    state.mode = MODES.includes(prefs.mode) ? prefs.mode : 1;
+    state.zoom = clamp(prefs.zoom || 1, ZMIN, ZMAX);
+    state.trim = !!prefs.trim;
+  }
+
+  const warm = liveDocs.get(currentKey());
+  if (warm && warm.doc === doc && warm.pageSizes && warm.pageSizes.length === doc.numPages) {
+    state.pageSizes = warm.pageSizes;
+  } else {
+    const sizes = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      if (seq !== activateSeq) return; // a later switch superseded this one
+      const vp = page.getViewport({ scale: 1 });
+      sizes.push({ w: vp.width, h: vp.height });
+      if (i === 1 || i % 20 === 0) {
+        progressEl.style.transform = `scaleX(${0.7 + 0.3 * (i / doc.numPages)})`;
+      }
+    }
+    state.pageSizes = sizes;
+  }
+
+  $('#fileLabel').textContent = state.name.replace(/\.pdf$/i, '');
+  document.title = state.name.replace(/\.pdf$/i, '') + ' — Riffle';
+  body.classList.remove('no-doc');
+
+  undoStack.length = 0;
+  redoStack.length = 0;
+  resetFind();
+  resetScrub();
+  buildShells();
+  syncModeUI();
+  syncZoomUI();
+  syncTrimUI();
+  layout();
+  buildToc();
+  updateIndicator();
+  if (state.trim) sweepCrops();
+
+  if (prefs && prefs.page > 1 && prefs.page <= doc.numPages) {
+    scrollToPage(prefs.page, false);
+  } else {
+    scroller.scrollTop = 0;
+  }
+  registerShelfEntry(doc, name, state.path);
+  if (native.docLoaded) native.docLoaded(); // this window now owns a document
 }
 
 let toastTimer = null;
@@ -1020,6 +1051,7 @@ window.addEventListener('mousemove', (e) => {
   wakeChrome();
   body.classList.toggle('tl-zone', e.clientX < 170 && e.clientY < 80);
   body.classList.toggle('toc-zone', e.clientX < 44);
+  body.classList.toggle('shelf-zone', e.clientX > innerWidth - 44);
   body.classList.toggle('menu-zone', e.clientX > innerWidth - 120 && e.clientY < 80);
   body.classList.toggle('tb-zone',
     e.clientY < 90 && Math.abs(e.clientX - innerWidth / 2) < 280);
@@ -1032,6 +1064,15 @@ window.addEventListener('mousemove', (e) => {
              overRect(e, tocHandleBtn.getBoundingClientRect(), 4)) {
     tocPinned = false;
     toggleToc(true);
+  }
+
+  // shelf mirrors the TOC on the right edge
+  if (body.classList.contains('shelf-open')) {
+    if (!shelfPinned && !deskDragging && e.clientX < innerWidth - 360) toggleShelf(false);
+  } else if ((state.doc || shelf.items.length) && body.classList.contains('shelf-zone') &&
+             overRect(e, shelfHandleBtn.getBoundingClientRect(), 4)) {
+    shelfPinned = false;
+    toggleShelf(true);
   }
 
   // menu: opens only after a moment of dwell on the button; folds quickly on leave
@@ -1050,7 +1091,7 @@ window.addEventListener('mousemove', (e) => {
   }
 });
 document.addEventListener('mouseleave', () => {
-  body.classList.remove('ui-active', 'tl-zone', 'toc-zone', 'menu-zone', 'tb-zone', 'scrub-zone');
+  body.classList.remove('ui-active', 'tl-zone', 'toc-zone', 'shelf-zone', 'menu-zone', 'tb-zone', 'scrub-zone');
 });
 
 /* window controls */
@@ -2209,9 +2250,19 @@ document.addEventListener('keydown', (e) => {
     closeAllPopovers();
     body.classList.remove('menu-open');
     toggleToc(false);
+    toggleShelf(false);
     closeFind();
     pageJump.classList.remove('open');
     if (!typing) setTool('cursor');
+    return;
+  }
+
+  // ⌃Tab flips to the previously shown document, like alt-tabbing between papers
+  if (e.ctrlKey && e.key === 'Tab') {
+    e.preventDefault();
+    const target = docMru.find((k) =>
+      k !== currentKey() && (liveDocs.has(k) || shelf.items.some((i) => i.key === k)));
+    if (target) switchTo(target);
     return;
   }
 
@@ -2253,11 +2304,419 @@ document.addEventListener('keydown', (e) => {
     case '3': setMode(3); break;
     case '4': setMode('h'); break;
     case 't': case 'T': tocPinned = true; toggleToc(); break;
+    case 'd': case 'D': shelfPinned = true; toggleShelf(); break;
     case 'v': case 'V': setTool('cursor'); break;
     case 'h': case 'H': setTool('highlight'); break;
     case 'n': case 'N': setTool('note'); break;
   }
 });
+
+/* ---------------- document shelf — right edge, a little desk of PDFs ----------------
+   Every document that passes through the window lands here as a card.
+   Cards can be freely arranged (desktop-style), show a chosen cover page,
+   fade grey when untouched for a while, and unpinned ones are cleared
+   from the shelf after seven days. Only shelf entries are cleared —
+   the files on disk are never touched. */
+
+const SHELF_KEY = 'riffle:shelf';
+const STALE_MS = 3 * 864e5;   // untouched this long → faded grey
+const EXPIRE_MS = 7 * 864e5;  // untouched this long and unpinned → off the shelf
+const LIVE_MAX = 4;           // documents kept parsed in memory
+const CARD_W = 124, CARD_H = 186, DESK_PAD = 16, GAP_X = 22, GAP_Y = 16;
+
+const shelfEl = $('#shelf');
+const deskEl = $('#shelfDesk');
+const shelfHandleBtn = $('#shelfHandle');
+const shelf = { items: [] };  // [{key, path, name, fp, pages, lastOpened, pinned, thumbPage, pos}]
+const liveDocs = new Map();   // key → {doc, name, path, pageSizes}
+const thumbCache = new Map(); // key → {page, url}
+const thumbJobs = new Map();
+let docMru = [];              // most recently shown first
+let shelfPinned = false;      // opened via keyboard — ignore hover-out closing
+let deskDragging = false;
+
+const currentKey = () => (state.doc ? (state.path || 'fp:' + state.fp) : '');
+
+function stashCurrentDoc() {
+  if (!state.doc) return;
+  liveDocs.set(currentKey(), {
+    doc: state.doc, name: state.name, path: state.path, pageSizes: state.pageSizes,
+  });
+}
+
+function loadShelf() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(SHELF_KEY) || '[]');
+    shelf.items = Array.isArray(arr) ? arr.filter((i) => i && i.key) : [];
+  } catch { shelf.items = []; }
+}
+
+const saveShelf = debounce(() => {
+  try { localStorage.setItem(SHELF_KEY, JSON.stringify(shelf.items)); } catch {}
+}, 200);
+
+function dropThumbSnapshot(key) {
+  try { localStorage.removeItem('riffle:thumb:' + key); } catch {}
+}
+
+/* unpinned entries idle for a week leave the shelf (files on disk stay put) */
+function sweepShelf() {
+  const now = Date.now();
+  const keep = [];
+  for (const it of shelf.items) {
+    const inUse = it.key === currentKey() || liveDocs.has(it.key);
+    if (it.pinned || inUse || now - (it.lastOpened || 0) < EXPIRE_MS) keep.push(it);
+    else dropThumbSnapshot(it.key);
+  }
+  if (keep.length !== shelf.items.length) {
+    shelf.items = keep;
+    saveShelf();
+  }
+}
+
+/* keep only a handful of parsed documents in memory; evicted ones reload from disk */
+function evictLiveDocs() {
+  if (liveDocs.size <= LIVE_MAX) return;
+  for (const k of [...docMru].reverse()) {
+    if (liveDocs.size <= LIVE_MAX) break;
+    if (k === currentKey()) continue;
+    const e = liveDocs.get(k);
+    if (!e || !e.path) continue; // path-less docs can't be reloaded — keep them
+    try { e.doc.destroy(); } catch {}
+    liveDocs.delete(k);
+  }
+}
+
+/* called by activateDoc once a document is on screen */
+function registerShelfEntry(doc, name, path) {
+  const key = currentKey();
+  let it = shelf.items.find((i) => i.key === key) ||
+           (path && shelf.items.find((i) => i.fp === state.fp && !i.path)) || null;
+  if (it && it.key !== key) { // a data-only entry learned its file path
+    dropThumbSnapshot(it.key);
+    thumbCache.delete(it.key);
+    liveDocs.delete(it.key);
+    docMru = docMru.filter((k) => k !== it.key);
+    it.key = key;
+  }
+  if (!it) {
+    it = { key, thumbPage: 1, pinned: false, pos: null };
+    shelf.items.push(it);
+  }
+  it.path = path || it.path || '';
+  it.name = name;
+  it.fp = state.fp;
+  it.pages = doc.numPages;
+  it.lastOpened = Date.now();
+  docMru = [key, ...docMru.filter((k) => k !== key)].slice(0, 20);
+  const prev = liveDocs.get(key);
+  if (prev && prev.doc !== doc) { try { prev.doc.destroy(); } catch {} }
+  liveDocs.set(key, { doc, name, path: it.path, pageSizes: state.pageSizes });
+  evictLiveDocs();
+  saveShelf();
+  renderShelf();
+}
+
+/* register a dropped file on the shelf without switching to it */
+async function addToShelf(data, name, path) {
+  try {
+    const doc = await pdfjsLib.getDocument({ data }).promise;
+    const fp = (doc.fingerprints && doc.fingerprints[0]) || 'unknown';
+    const key = path || 'fp:' + fp;
+    if (key === currentKey()) { try { doc.destroy(); } catch {} return; }
+    let it = shelf.items.find((i) => i.key === key);
+    if (!it) {
+      it = { key, thumbPage: 1, pinned: false, pos: null };
+      shelf.items.push(it);
+    }
+    it.path = path || it.path || '';
+    it.name = name;
+    it.fp = fp;
+    it.pages = doc.numPages;
+    it.lastOpened = Date.now();
+    const prev = liveDocs.get(key);
+    if (prev && prev.doc !== doc) { try { prev.doc.destroy(); } catch {} }
+    liveDocs.set(key, { doc, name, path: it.path, pageSizes: null });
+    if (!docMru.includes(key)) docMru.push(key);
+    evictLiveDocs();
+    saveShelf();
+    renderShelf();
+  } catch (err) {
+    console.warn('shelf add failed:', err);
+  }
+}
+
+async function switchTo(key) {
+  if (!key || key === currentKey()) return;
+  const live = liveDocs.get(key);
+  if (live) {
+    await activateDoc(live.doc, live.name, live.path);
+    return;
+  }
+  const it = shelf.items.find((i) => i.key === key);
+  if (!it || !it.path || !native.readPdf) return;
+  body.classList.add('loading');
+  try {
+    const data = await native.readPdf(it.path);
+    await openPdf(data, it.name, it.path);
+  } catch {
+    body.classList.remove('loading');
+    alertToast(T.fileMissing);
+  }
+}
+
+function removeShelfItem(key) {
+  shelf.items = shelf.items.filter((i) => i.key !== key);
+  dropThumbSnapshot(key);
+  thumbCache.delete(key);
+  if (key !== currentKey()) {
+    const live = liveDocs.get(key);
+    if (live) { try { live.doc.destroy(); } catch {} liveDocs.delete(key); }
+    docMru = docMru.filter((k) => k !== key);
+  }
+  saveShelf();
+  renderShelf();
+}
+
+/* ----- card thumbnails: the chosen cover page, cached and persisted ----- */
+
+function readSnapshot(key) {
+  try {
+    const s = localStorage.getItem('riffle:thumb:' + key);
+    return s ? JSON.parse(s) : null;
+  } catch { return null; }
+}
+
+async function ensureThumb(item, img) {
+  const want = clamp(item.thumbPage || 1, 1, item.pages || 1);
+  const memo = thumbCache.get(item.key);
+  if (memo && memo.page === want) { img.src = memo.url; return; }
+  const snap = readSnapshot(item.key);
+  if (snap && snap.page === want && snap.url) {
+    thumbCache.set(item.key, snap);
+    img.src = snap.url;
+    return;
+  }
+  const jobKey = item.key + '@' + want;
+  if (thumbJobs.has(jobKey)) return;
+  const job = (async () => {
+    let doc = null, temp = null;
+    const live = liveDocs.get(item.key);
+    if (live) doc = live.doc;
+    else if (item.key === currentKey()) doc = state.doc;
+    else if (item.path && native.readPdf) {
+      const data = await native.readPdf(item.path);
+      temp = await pdfjsLib.getDocument({ data }).promise;
+      doc = temp;
+    }
+    if (!doc) return;
+    try {
+      const page = await doc.getPage(clamp(want, 1, doc.numPages));
+      const vp0 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: (CARD_W * 2) / vp0.width });
+      const c = document.createElement('canvas');
+      c.width = Math.floor(vp.width);
+      c.height = Math.floor(vp.height);
+      await page.render({ canvasContext: c.getContext('2d', { alpha: false }), viewport: vp }).promise;
+      const url = c.toDataURL('image/jpeg', 0.7);
+      thumbCache.set(item.key, { page: want, url });
+      try { localStorage.setItem('riffle:thumb:' + item.key, JSON.stringify({ page: want, url })); } catch {}
+      // the card may have been rebuilt while rendering — find its live img
+      const live2 = deskEl.querySelector(`.doc-card[data-key="${CSS.escape(item.key)}"] img`);
+      if (live2) live2.src = url;
+      else if (img.isConnected) img.src = url;
+    } finally {
+      if (temp) { try { temp.destroy(); } catch {} }
+    }
+  })().catch(() => {}).finally(() => thumbJobs.delete(jobKey));
+  thumbJobs.set(jobKey, job);
+}
+
+/* ----- the desk itself ----- */
+
+function autoSlot(index) {
+  return {
+    x: DESK_PAD + (index % 2) * (CARD_W + GAP_X),
+    y: DESK_PAD + Math.floor(index / 2) * (CARD_H + GAP_Y),
+  };
+}
+
+function actionBtn(title, svgPath, cls) {
+  const b = document.createElement('button');
+  if (cls) b.className = cls;
+  b.title = title;
+  b.innerHTML = `<svg viewBox="0 0 20 20">${svgPath}</svg>`;
+  return b;
+}
+
+function renderShelf() {
+  body.classList.toggle('shelf-has', shelf.items.length > 0);
+  deskEl.innerHTML = '';
+  if (!shelf.items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'shelf-empty';
+    empty.textContent = T.shelfEmpty;
+    deskEl.appendChild(empty);
+    return;
+  }
+  const now = Date.now();
+  let auto = 0;
+  for (const it of shelf.items) {
+    const pos = it.pos || autoSlot(auto++);
+    const active = it.key === currentKey();
+
+    const card = document.createElement('div');
+    card.className = 'doc-card';
+    card.dataset.key = it.key;
+    if (active) card.classList.add('active');
+    if (it.pinned) card.classList.add('pinned');
+    if (!active && now - (it.lastOpened || 0) > STALE_MS) card.classList.add('stale');
+    card.style.left = pos.x + 'px';
+    card.style.top = pos.y + 'px';
+    card.title = T.lastOpened(new Date(it.lastOpened || now).toLocaleDateString());
+
+    const thumb = document.createElement('div');
+    thumb.className = 'dc-thumb';
+    const img = document.createElement('img');
+    img.draggable = false;
+    thumb.appendChild(img);
+
+    // reading progress along the bottom edge
+    const pages = it.pages || 0;
+    if (pages > 1) {
+      let readPage = 1;
+      try {
+        const p = JSON.parse(localStorage.getItem(`qy:prefs:${it.fp}`) || 'null');
+        if (p && p.page) readPage = p.page;
+      } catch {}
+      const prog = document.createElement('div');
+      prog.className = 'dc-progress';
+      const bar = document.createElement('i');
+      bar.style.width = clamp((readPage / pages) * 100, 2, 100) + '%';
+      prog.appendChild(bar);
+      thumb.appendChild(prog);
+    }
+
+    // cover flip: pick which page faces up
+    const flip = document.createElement('div');
+    flip.className = 'dc-flip';
+    const flipNum = document.createElement('em');
+    flipNum.textContent = `${clamp(it.thumbPage || 1, 1, pages || 1)}${pages ? ' ∕ ' + pages : ''}`;
+    const flipTo = (delta) => {
+      it.thumbPage = clamp((it.thumbPage || 1) + delta, 1, pages || 1);
+      flipNum.textContent = `${it.thumbPage}${pages ? ' ∕ ' + pages : ''}`;
+      saveShelf();
+      ensureThumb(it, img);
+    };
+    const fPrev = actionBtn(T.flipPrev, '<path d="M12 5.5L7.5 10l4.5 4.5"/>');
+    const fNext = actionBtn(T.flipNext, '<path d="M8 5.5l4.5 4.5L8 14.5"/>');
+    fPrev.addEventListener('click', (e) => { e.stopPropagation(); flipTo(-1); });
+    fNext.addEventListener('click', (e) => { e.stopPropagation(); flipTo(1); });
+    flip.append(fPrev, flipNum, fNext);
+    thumb.appendChild(flip);
+
+    // actions: pin / open in new window / remove
+    const acts = document.createElement('div');
+    acts.className = 'dc-actions';
+    const pinBtn = actionBtn(it.pinned ? T.unpinDoc : T.pinDoc,
+      '<path d="M8 3h4l.6 5.2 2 1.8H5.4l2-1.8zM10 10v6.5"/>');
+    pinBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      it.pinned = !it.pinned;
+      card.classList.toggle('pinned', it.pinned);
+      pinBtn.title = it.pinned ? T.unpinDoc : T.pinDoc;
+      saveShelf();
+    });
+    acts.appendChild(pinBtn);
+    if (it.path && native.newWindow) {
+      const nw = actionBtn(T.openNewWin, '<path d="M8 4.5H4.5v11h11V12M11.5 4.5h4v4M15.2 4.8L9.5 10.5"/>');
+      nw.addEventListener('click', (e) => { e.stopPropagation(); native.newWindow(it.path); });
+      acts.appendChild(nw);
+    }
+    const rm = actionBtn(T.removeDoc, '<path d="M6 6l8 8M14 6l-8 8"/>', 'danger');
+    rm.addEventListener('click', (e) => { e.stopPropagation(); removeShelfItem(it.key); });
+    acts.appendChild(rm);
+    thumb.appendChild(acts);
+
+    const badge = document.createElement('span');
+    badge.className = 'dc-pin-badge';
+    badge.innerHTML = '<svg viewBox="0 0 20 20"><path d="M8 3h4l.6 5.2 2 1.8H5.4l2-1.8zM10 10v6.5"/></svg>';
+    thumb.appendChild(badge);
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'dc-name';
+    nameEl.textContent = (it.name || '').replace(/\.pdf$/i, '');
+
+    card.append(thumb, nameEl);
+    card.addEventListener('mousedown', (e) => startCardDrag(e, it, card));
+    card.addEventListener('click', () => {
+      if (card.dataset.dragged) return;
+      switchTo(it.key);
+    });
+    deskEl.appendChild(card);
+    ensureThumb(it, img);
+  }
+}
+
+/* drag a card anywhere on the desk — its spot is remembered */
+function startCardDrag(e, it, card) {
+  if (e.button !== 0 || e.target.closest('button')) return;
+  e.preventDefault();
+  const sx = e.clientX, sy = e.clientY;
+  const startLeft = card.offsetLeft, startTop = card.offsetTop;
+  let moved = false;
+  const onMove = (ev) => {
+    if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) return;
+    moved = true;
+    deskDragging = true;
+    card.classList.add('dragging');
+    const maxX = Math.max(4, deskEl.clientWidth - CARD_W - 4);
+    card.style.left = clamp(startLeft + ev.clientX - sx, 4, maxX) + 'px';
+    card.style.top = Math.max(4, startTop + ev.clientY - sy) + 'px';
+  };
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    deskDragging = false;
+    card.classList.remove('dragging');
+    if (moved) {
+      it.pos = { x: card.offsetLeft, y: card.offsetTop };
+      saveShelf();
+      card.dataset.dragged = '1';
+      setTimeout(() => { delete card.dataset.dragged; }, 0);
+    }
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function toggleShelf(force) {
+  const on = force !== undefined ? force : !body.classList.contains('shelf-open');
+  if (on) { sweepShelf(); renderShelf(); }
+  body.classList.toggle('shelf-open', on);
+}
+
+shelfHandleBtn.addEventListener('click', () => {
+  shelfPinned = true;
+  toggleShelf();
+});
+
+// tapping back into the document dismisses the shelf
+scroller.addEventListener('mousedown', () => {
+  if (body.classList.contains('shelf-open')) toggleShelf(false);
+});
+
+// other windows share the same shelf — pick up their changes
+window.addEventListener('storage', (e) => {
+  if (e.key === SHELF_KEY && !deskDragging) {
+    loadShelf();
+    renderShelf();
+  }
+});
+
+loadShelf();
+sweepShelf();
+renderShelf();
 
 /* ---------------- drag & drop ---------------- */
 
@@ -2273,22 +2732,20 @@ window.addEventListener('drop', async (e) => {
   body.classList.remove('dragging');
   const files = [...(e.dataTransfer.files || [])].filter((f) => /\.pdf$/i.test(f.name));
   if (!files.length) return;
-  const paths = files
-    .map((f) => { try { return native.pathForFile && native.pathForFile(f); } catch { return null; } })
-    .filter(Boolean);
-  if (paths.length === files.length && state.doc) {
-    // this window is busy reading — every drop opens its own window
-    paths.forEach((p) => native.openPath(p));
-    return;
+  // every drop joins this window's shelf; the first file takes the screen
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    let p = null;
+    try { p = native.pathForFile && native.pathForFile(f); } catch {}
+    const buf = new Uint8Array(await f.arrayBuffer());
+    if (i === 0) await openPdf(buf, f.name, p || '');
+    else addToShelf(buf, f.name, p || '');
   }
-  const buf = await files[0].arrayBuffer();
-  openPdf(new Uint8Array(buf), files[0].name);
-  paths.slice(1).forEach((p) => native.openPath(p));
 });
 
 /* ---------------- native events ---------------- */
 
 native.onIncoming && native.onIncoming(() => body.classList.add('loading'));
-native.onOpen(({ name, data }) => openPdf(data, name));
+native.onOpen(({ name, data, path }) => openPdf(data, name, path || ''));
 
 wakeChrome();

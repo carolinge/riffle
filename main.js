@@ -37,7 +37,7 @@ async function sendPdf(win, filePath) {
   try {
     win.webContents.send('pdf:incoming'); // suppress the empty state right away
     const data = await fs.readFile(filePath);
-    win.webContents.send('pdf:open', { name: path.basename(filePath), data });
+    win.webContents.send('pdf:open', { name: path.basename(filePath), data, path: filePath });
     win.docLoaded = true;
   } catch (err) {
     dialog.showErrorBox(L.openFail, String(err && err.message || err));
@@ -74,7 +74,8 @@ function createWindow(filePath) {
   return win;
 }
 
-/* route a file: reuse an empty window if one exists, else open a new one */
+/* route a file: reuse an empty window, else join the focused window's shelf,
+   else open a new window */
 function openPath(filePath) {
   const p = path.resolve(filePath);
   const empty = [...wins].find((w) => !w.isDestroyed() && !w.docLoaded);
@@ -86,6 +87,13 @@ function openPath(filePath) {
       sendPdf(empty, p);
     }
     empty.focus();
+    return;
+  }
+  const target = BrowserWindow.getFocusedWindow() ||
+    [...wins].find((w) => !w.isDestroyed());
+  if (target) {
+    sendPdf(target, p);
+    target.focus();
   } else {
     createWindow(p);
   }
@@ -117,6 +125,16 @@ ipcMain.on('win:fullscreen', (e) => {
   if (w) w.setFullScreen(!w.isFullScreen());
 });
 ipcMain.on('pdf:request-open', () => openDialog());
+
+// the renderer's document shelf reopens files on its own
+ipcMain.handle('pdf:read', async (_e, p) => {
+  if (typeof p !== 'string' || !p.toLowerCase().endsWith('.pdf')) throw new Error('bad path');
+  return fs.readFile(p);
+});
+ipcMain.on('win:new-with', (_e, p) => {
+  if (typeof p === 'string' && p.toLowerCase().endsWith('.pdf')) createWindow(path.resolve(p));
+  else createWindow();
+});
 
 // macOS: file double-clicked in Finder / dragged onto the Dock icon
 app.on('open-file', (event, filePath) => {
@@ -174,6 +192,14 @@ app.whenReady().then(() => {
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+
+  // macOS: right-clicking the Dock icon offers a fresh workspace
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setMenu(Menu.buildFromTemplate([
+      { label: L.newWin, click: () => createWindow() },
+      { label: L.open, click: () => openDialog() },
+    ]));
+  }
 
   const cliPdf = process.argv
     .slice(app.isPackaged ? 1 : 2)
