@@ -705,50 +705,12 @@ function syncZoomUI() {
   $('#zoomLabel').textContent = Math.round(state.zoom * 100) + '%';
 }
 
-/* two-finger diagonal flick — swipe up-right for the next page, down-left
-   for the previous. Trackpads report two-finger motion as wheel deltas
-   (with natural scrolling they run opposite to finger travel), so the
-   gesture is a burst of events whose two components are both significant
-   and roughly diagonal. Disabled while the page overflows horizontally —
-   there a diagonal motion is a pan, not a page turn. */
-const FLICK_DIST = 42;   // px needed on BOTH axes …
-const FLICK_TIME = 260;  // … within this many ms — i.e. a fast flick
-const flick = { ax: 0, ay: 0, t0: 0, last: 0, fired: false };
-
-function flickWheel(e) {
-  const adx = Math.abs(e.deltaX), ady = Math.abs(e.deltaY);
-  const now = performance.now();
-  if (now - flick.last > 90) { flick.ax = 0; flick.ay = 0; flick.t0 = now; flick.fired = false; }
-  flick.last = now;
-  if (flick.fired) return true; // eat the momentum tail of a fired gesture
-  const diagEvent = adx > 3 && ady > 3 && adx < ady * 2.5 && ady < adx * 2.5;
-  if (!diagEvent) { flick.ax = 0; flick.ay = 0; flick.t0 = now; return false; }
-  flick.ax += e.deltaX;
-  flick.ay += e.deltaY;
-  // speed matters: a leisurely diagonal drag scrolls, only a quick flick flips
-  if (now - flick.t0 < FLICK_TIME &&
-      Math.abs(flick.ax) > FLICK_DIST && Math.abs(flick.ay) > FLICK_DIST &&
-      Math.sign(flick.ax) !== Math.sign(flick.ay)) {
-    flick.fired = true;
-    // natural scrolling: fingers up-right → deltaY > 0, deltaX < 0
-    if (flick.ay > 0) scrollToPage(Math.min(state.currentPage + 1, state.doc.numPages));
-    else scrollToPage(Math.max(state.currentPage - 1, 1));
-    return true;
-  }
-  return false; // undecided — let the page scroll normally meanwhile
-}
-
 /* trackpad pinch (arrives as ctrl+wheel) and ⌘+wheel */
 scroller.addEventListener('wheel', (e) => {
   if (e.ctrlKey || e.metaKey) {
     e.preventDefault();
     const f = Math.exp(-clamp(e.deltaY, -32, 32) * 0.0058);
     zoomAt(state.zoom * f, e.clientX, e.clientY);
-    return;
-  }
-  if (state.doc && state.mode !== 'h' &&
-      scroller.scrollWidth <= scroller.clientWidth + 24 && flickWheel(e)) {
-    e.preventDefault();
     return;
   }
   // filmstrip mode: a plain vertical wheel drives the horizontal scroll

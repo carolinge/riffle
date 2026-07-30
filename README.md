@@ -65,10 +65,6 @@ with no chrome; auto-trim shaves the white margins so content gets every pixel.
   never typed into clean up after themselves.
 - **Pointer-anchored zoom** — pinch to zoom around your cursor; re-renders
   sharpen only when the gesture rests. Fit-width / fit-height one-taps.
-- **Two-finger flick to turn pages** — a quick diagonal flick up-right on
-  the trackpad advances a page, down-left goes back. Speed is what counts:
-  leisurely scrolling is untouched, and the gesture steps aside whenever
-  the zoomed page needs room to pan sideways.
 - **Table of contents** — slides in from the left edge on approach; the
   current chapter is marked as you read.
 - **Document desk** — slides in from the right edge (or press `D`); every
