@@ -2737,7 +2737,11 @@ window.addEventListener('drop', async (e) => {
     const f = files[i];
     let p = null;
     try { p = native.pathForFile && native.pathForFile(f); } catch {}
-    const buf = new Uint8Array(await f.arrayBuffer());
+    // read through main when we know the path — it also lifts the file's
+    // quarantine flag so later Finder double-clicks open without the warning
+    const buf = p && native.readPdf
+      ? new Uint8Array(await native.readPdf(p))
+      : new Uint8Array(await f.arrayBuffer());
     if (i === 0) await openPdf(buf, f.name, p || '');
     else addToShelf(buf, f.name, p || '');
   }

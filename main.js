@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
 const path = require('path');
 const fs = require('fs/promises');
 const fss = require('fs');
+const { execFile } = require('child_process');
 
 // one-time migration: annotations/prefs from the old app name (轻阅) to Riffle
 try {
@@ -32,6 +33,15 @@ const ZH = {
 };
 let L = EN;
 
+/* the user chose to open this file — clear the quarantine flag so Finder's
+   "could not verify … is free of malware" prompt (shown for downloaded files
+   handled by a non-notarized app) doesn't come back on the next double-click */
+function dequarantine(p) {
+  if (process.platform === 'darwin') {
+    execFile('xattr', ['-d', 'com.apple.quarantine', p], () => {});
+  }
+}
+
 async function sendPdf(win, filePath) {
   if (!win || win.isDestroyed()) return;
   try {
@@ -39,6 +49,7 @@ async function sendPdf(win, filePath) {
     const data = await fs.readFile(filePath);
     win.webContents.send('pdf:open', { name: path.basename(filePath), data, path: filePath });
     win.docLoaded = true;
+    dequarantine(filePath);
   } catch (err) {
     dialog.showErrorBox(L.openFail, String(err && err.message || err));
   }
@@ -129,7 +140,9 @@ ipcMain.on('pdf:request-open', () => openDialog());
 // the renderer's document shelf reopens files on its own
 ipcMain.handle('pdf:read', async (_e, p) => {
   if (typeof p !== 'string' || !p.toLowerCase().endsWith('.pdf')) throw new Error('bad path');
-  return fs.readFile(p);
+  const data = await fs.readFile(p);
+  dequarantine(p);
+  return data;
 });
 ipcMain.on('win:new-with', (_e, p) => {
   if (typeof p === 'string' && p.toLowerCase().endsWith('.pdf')) createWindow(path.resolve(p));
