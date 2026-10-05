@@ -55,6 +55,15 @@ async function sendPdf(win, filePath) {
   }
 }
 
+/* each window is its own workspace: lowest free number, so the first window
+   after a relaunch is workspace 1 again and finds its own desk */
+function nextWorkspace() {
+  const used = new Set([...wins].filter((w) => !w.isDestroyed()).map((w) => w.wsid));
+  let i = 1;
+  while (used.has(i)) i++;
+  return i;
+}
+
 function createWindow(filePath) {
   const win = new BrowserWindow({
     width: 1180,
@@ -69,10 +78,13 @@ function createWindow(filePath) {
       contextIsolation: true,
     },
   });
+  win.wsid = nextWorkspace();
   wins.add(win);
   win.docLoaded = false;
 
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'), filePath ? { query: { incoming: '1' } } : undefined);
+  const query = { ws: String(win.wsid) };
+  if (filePath) query.incoming = '1';
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'), { query });
 
   win.webContents.on('did-finish-load', () => {
     if (filePath) sendPdf(win, filePath);

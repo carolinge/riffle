@@ -75,8 +75,8 @@ with no chrome; auto-trim shaves the white margins so content gets every pixel.
   three days fade to grey; unpinned ones leave the desk after seven
   (only the shelf entry — files on disk are never touched).
 - **Multi-window** — ⌘N or right-click the Dock icon for a fresh workspace;
-  one window now holds many documents (⌘O multi-select, Finder,
-  drag & drop).
+  every window keeps its own desk, and one window holds many documents
+  (⌘O multi-select, Finder, drag & drop).
 - **Per-document memory** — view mode, zoom, trim, reading position, and
   annotations are all remembered per file.
 - **Bilingual** — the UI follows your system language (English / 中文).

@@ -2318,7 +2318,9 @@ document.addEventListener('keydown', (e) => {
    from the shelf after seven days. Only shelf entries are cleared —
    the files on disk are never touched. */
 
-const SHELF_KEY = 'riffle:shelf';
+/* each window is its own workspace — its desk never mixes with another's */
+const WSID = new URLSearchParams(location.search).get('ws') || '1';
+const SHELF_KEY = 'riffle:shelf:' + WSID;
 const STALE_MS = 3 * 864e5;   // untouched this long → faded grey
 const EXPIRE_MS = 7 * 864e5;  // untouched this long and unpinned → off the shelf
 const LIVE_MAX = 4;           // documents kept parsed in memory
@@ -2346,7 +2348,10 @@ function stashCurrentDoc() {
 
 function loadShelf() {
   try {
-    const arr = JSON.parse(localStorage.getItem(SHELF_KEY) || '[]');
+    let raw = localStorage.getItem(SHELF_KEY);
+    // a desk from before workspaces existed belongs to window 1
+    if (raw == null && WSID === '1') raw = localStorage.getItem('riffle:shelf');
+    const arr = JSON.parse(raw || '[]');
     shelf.items = Array.isArray(arr) ? arr.filter((i) => i && i.key) : [];
   } catch { shelf.items = []; }
 }
