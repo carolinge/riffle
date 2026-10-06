@@ -60,6 +60,7 @@ const T = ZH ? {
   openNewWin: '在新窗口打开', flipPrev: '封面上一页', flipNext: '封面下一页',
   fileMissing: '找不到文件，可能已被移动或删除',
   lastOpened: (d) => `上次打开：${d}`,
+  addDoc: '添加 PDF…', perRow: (n) => `每行 ${n} 张（点击切换）`, tidy: '一键对齐',
 } : {
   openPdf: 'Open PDF…', viewMode: 'VIEW', zoom: 'Zoom', trim: 'Trim margins',
   fitW: 'Fit width', fitH: 'Fit height',
@@ -81,6 +82,7 @@ const T = ZH ? {
   openNewWin: 'Open in new window', flipPrev: 'Previous cover page', flipNext: 'Next cover page',
   fileMissing: 'File not found — it may have been moved or deleted',
   lastOpened: (d) => `Last opened ${d}`,
+  addDoc: 'Add PDF…', perRow: (n) => `${n} per row (click to cycle)`, tidy: 'Tidy up',
 };
 
 function applyI18n() {
@@ -2324,7 +2326,23 @@ const SHELF_KEY = 'riffle:shelf:' + WSID;
 const STALE_MS = 3 * 864e5;   // untouched this long → faded grey
 const EXPIRE_MS = 7 * 864e5;  // untouched this long and unpinned → off the shelf
 const LIVE_MAX = 4;           // documents kept parsed in memory
-const CARD_W = 124, CARD_H = 186, DESK_PAD = 16, GAP_X = 22, GAP_Y = 16;
+const DESK_PAD = 16, DESK_GAP = 14;
+let deskCols = 2; // cards per row, 2–4, remembered per workspace
+try { deskCols = clamp(parseInt(localStorage.getItem('riffle:deskcols:' + WSID), 10) || 2, 2, 4); } catch {}
+
+function deskMetrics() {
+  const w = (deskEl.clientWidth || 304) - 2 * DESK_PAD;
+  const cw = Math.floor((w - (deskCols - 1) * DESK_GAP) / deskCols);
+  const th = Math.round(cw * 1.21);
+  return { cw, th, ch: th + 36 };
+}
+
+function slotRect(i, m) {
+  return {
+    x: DESK_PAD + (i % deskCols) * (m.cw + DESK_GAP),
+    y: DESK_PAD + Math.floor(i / deskCols) * (m.ch + DESK_GAP),
+  };
+}
 
 const shelfEl = $('#shelf');
 const deskEl = $('#shelfDesk');
@@ -2518,7 +2536,7 @@ async function ensureThumb(item, img) {
     try {
       const page = await doc.getPage(clamp(want, 1, doc.numPages));
       const vp0 = page.getViewport({ scale: 1 });
-      const vp = page.getViewport({ scale: (CARD_W * 2) / vp0.width });
+      const vp = page.getViewport({ scale: 280 / vp0.width });
       const c = document.createElement('canvas');
       c.width = Math.floor(vp.width);
       c.height = Math.floor(vp.height);
@@ -2539,11 +2557,24 @@ async function ensureThumb(item, img) {
 
 /* ----- the desk itself ----- */
 
-function autoSlot(index) {
-  return {
-    x: DESK_PAD + (index % 2) * (CARD_W + GAP_X),
-    y: DESK_PAD + Math.floor(index / 2) * (CARD_H + GAP_Y),
-  };
+/* line every card up on the grid, in shelf order */
+function tidyDesk() {
+  const m = deskMetrics();
+  shelf.items.forEach((it, i) => { it.pos = slotRect(i, m); });
+  saveShelf();
+  renderShelf();
+}
+
+function setDeskCols(n) {
+  deskCols = clamp(n, 2, 4);
+  try { localStorage.setItem('riffle:deskcols:' + WSID, String(deskCols)); } catch {}
+  syncShelfBar();
+  tidyDesk(); // spots from the old grid don't fit the new one
+}
+
+function syncShelfBar() {
+  $('#shelfCols em').textContent = deskCols;
+  $('#shelfCols').title = T.perRow(deskCols);
 }
 
 function actionBtn(title, svgPath, cls) {
@@ -2565,9 +2596,22 @@ function renderShelf() {
     return;
   }
   const now = Date.now();
-  let auto = 0;
+  const m = deskMetrics();
+  deskEl.style.setProperty('--card-w', m.cw + 'px');
+  deskEl.style.setProperty('--thumb-h', m.th + 'px');
+  // a card gets a spot once and keeps it for good — only dragging
+  // or "tidy up" moves it, so the arrangement never reshuffles itself
+  const taken = shelf.items.filter((i) => i.pos).map((i) => i.pos);
+  const freeSlot = () => {
+    for (let i = 0; ; i++) {
+      const s = slotRect(i, m);
+      if (!taken.some((p) => Math.abs(p.x - s.x) < m.cw * 0.6 && Math.abs(p.y - s.y) < m.ch * 0.6)) return s;
+    }
+  };
+  let placed = false;
   for (const it of shelf.items) {
-    const pos = it.pos || autoSlot(auto++);
+    if (!it.pos) { it.pos = freeSlot(); taken.push(it.pos); placed = true; }
+    const pos = it.pos;
     const active = it.key === currentKey();
 
     const card = document.createElement('div');
@@ -2661,6 +2705,7 @@ function renderShelf() {
     deskEl.appendChild(card);
     ensureThumb(it, img);
   }
+  if (placed) saveShelf(); // first-time spots are part of the arrangement
 }
 
 /* drag a card anywhere on the desk — its spot is remembered */
@@ -2675,7 +2720,7 @@ function startCardDrag(e, it, card) {
     moved = true;
     deskDragging = true;
     card.classList.add('dragging');
-    const maxX = Math.max(4, deskEl.clientWidth - CARD_W - 4);
+    const maxX = Math.max(4, deskEl.clientWidth - card.offsetWidth - 4);
     card.style.left = clamp(startLeft + ev.clientX - sx, 4, maxX) + 'px';
     card.style.top = Math.max(4, startTop + ev.clientY - sy) + 'px';
   };
@@ -2705,6 +2750,13 @@ shelfHandleBtn.addEventListener('click', () => {
   shelfPinned = true;
   toggleShelf();
 });
+
+$('#shelfAdd').addEventListener('click', () => native.requestOpen());
+$('#shelfCols').addEventListener('click', () => setDeskCols(deskCols === 4 ? 2 : deskCols + 1));
+$('#shelfTidy').addEventListener('click', tidyDesk);
+$('#shelfAdd').title = T.addDoc;
+$('#shelfTidy').title = T.tidy;
+syncShelfBar();
 
 // tapping back into the document dismisses the shelf
 scroller.addEventListener('mousedown', () => {

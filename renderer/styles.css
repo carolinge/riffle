@@ -1089,13 +1089,13 @@ body.shelf-open #shelf { opacity: 1; transform: none; pointer-events: auto; }
 /* one card per document, freely arranged like paper on a desk */
 .doc-card {
   position: absolute;
-  width: 124px;
+  width: var(--card-w, 124px);
   cursor: pointer;
 }
 .doc-card.dragging { z-index: 5; cursor: grabbing; }
 .dc-thumb {
   position: relative;
-  height: 150px;
+  height: var(--thumb-h, 150px);
   border-radius: 6px;
   background: #fff;
   box-shadow: var(--page-shadow);
@@ -1173,3 +1173,29 @@ body.shelf-open #shelf { opacity: 1; transform: none; pointer-events: auto; }
 }
 .dc-pin-badge svg { width: 9px; height: 9px; stroke-width: 2; }
 .doc-card.pinned .dc-pin-badge { display: grid; }
+
+/* fullscreen: the macOS menu bar slides down over the top strip — sit below it */
+body.fullscreen #winControls { top: 52px; }
+body.fullscreen #menuBtn { top: 52px; }
+body.fullscreen #menuPanel { top: 94px; }
+
+/* shelf footer: add / per-row / tidy */
+#shelfBar {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--panel-border);
+}
+#shelfBar button {
+  position: relative;
+  width: 28px; height: 26px;
+  border-radius: 7px;
+  display: grid; place-items: center;
+  color: var(--ink-2);
+}
+#shelfBar button:hover { background: var(--hover); color: var(--accent); }
+#shelfBar svg { width: 15px; height: 15px; }
+#shelfBar em {
+  position: absolute; right: 1px; bottom: 0;
+  font-style: normal; font-size: 8.5px; line-height: 1;
+  color: inherit;
+}
