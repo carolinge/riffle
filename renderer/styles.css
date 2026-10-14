@@ -1174,8 +1174,10 @@ body.shelf-open #shelf { opacity: 1; transform: none; pointer-events: auto; }
 .dc-pin-badge svg { width: 9px; height: 9px; stroke-width: 2; }
 .doc-card.pinned .dc-pin-badge { display: grid; }
 
-/* fullscreen: the macOS menu bar slides down over the top strip — sit below it */
-body.fullscreen #winControls { top: 52px; }
+/* fullscreen: the NATIVE traffic lights take over (they live in the sliding
+   menu bar, like every other app) — the HTML ones bow out entirely, and our
+   own top-right chrome drops below the menu bar's reach */
+body.fullscreen #winControls { display: none; }
 body.fullscreen #menuBtn { top: 52px; }
 body.fullscreen #menuPanel { top: 94px; }
 

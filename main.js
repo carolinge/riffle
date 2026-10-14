@@ -70,7 +70,7 @@ function createWindow(filePath) {
     height: 840,
     minWidth: 460,
     minHeight: 380,
-    frame: false,
+    titleBarStyle: 'hidden', // native traffic lights exist for fullscreen…
     backgroundColor: '#f7f6f3',
     title: 'Riffle',
     webPreferences: {
@@ -91,8 +91,17 @@ function createWindow(filePath) {
     win.docLoaded = !!filePath;
   });
 
-  win.on('enter-full-screen', () => win.webContents.send('win:fullscreen', true));
-  win.on('leave-full-screen', () => win.webContents.send('win:fullscreen', false));
+  // …but stay hidden while windowed, where the hover-revealed HTML ones live.
+  // In fullscreen the native ones take over and ride the sliding menu bar.
+  if (win.setWindowButtonVisibility) win.setWindowButtonVisibility(false);
+  win.on('enter-full-screen', () => {
+    if (win.setWindowButtonVisibility) win.setWindowButtonVisibility(true);
+    win.webContents.send('win:fullscreen', true);
+  });
+  win.on('leave-full-screen', () => {
+    if (win.setWindowButtonVisibility) win.setWindowButtonVisibility(false);
+    win.webContents.send('win:fullscreen', false);
+  });
   win.on('closed', () => wins.delete(win));
   return win;
 }
