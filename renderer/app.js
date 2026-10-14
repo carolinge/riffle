@@ -2557,10 +2557,26 @@ async function ensureThumb(item, img) {
 
 /* ----- the desk itself ----- */
 
-/* line every card up on the grid, in shelf order */
+/* snap cards to the grid without losing the arrangement: read them in
+   visual order — rows top to bottom, left to right, like a desktop's
+   "align to grid" — then refill the grid in that order */
 function tidyDesk() {
   const m = deskMetrics();
-  shelf.items.forEach((it, i) => { it.pos = slotRect(i, m); });
+  const byY = [...shelf.items].sort((a, b) => (a.pos ? a.pos.y : 0) - (b.pos ? b.pos.y : 0));
+  const order = [];
+  let row = [], rowY = null;
+  const flush = () => {
+    row.sort((a, b) => (a.pos ? a.pos.x : 0) - (b.pos ? b.pos.x : 0));
+    order.push(...row);
+    row = [];
+  };
+  for (const it of byY) {
+    const y = it.pos ? it.pos.y : 0;
+    if (rowY === null || y - rowY > m.ch * 0.5) { flush(); rowY = y; }
+    row.push(it);
+  }
+  flush();
+  order.forEach((it, i) => { it.pos = slotRect(i, m); });
   saveShelf();
   renderShelf();
 }
